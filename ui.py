@@ -427,7 +427,7 @@ def interview_question_generation_section(has_resume, generate_questions_func, r
                 st.markdown(f"**Q{i}.** {item.get('question', '')}")
                 answer = item.get('answer', '')
                 if answer:
-                    with st.expander(f"💡 View Answer for Q{i}", expanded=False):
+                    with st.expander(f"💡 Answer for Q{i}", expanded=True):
                         st.markdown(answer)
             else:
                 st.markdown(f"**Q{i}.** {item}")
