@@ -153,6 +153,47 @@ def resume_upload_section():
     return uploaded_file
 
 
+def _build_analysis_report(results):
+    """Build a text report from analysis results"""
+    lines = ["RESUME ANALYSIS REPORT", "=" * 40, ""]
+    lines.append(f"Overall Score: {results.get('overall_score', 0)}%")
+    lines.append(f"Status: {'Selected' if results.get('selected') else 'Not Selected'}")
+    lines.append("")
+
+    lines.append("SKILL SCORES:")
+    lines.append("-" * 30)
+    for skill, score_val in results.get("skill_scores", {}).items():
+        reasoning = results.get("skill_reasoning", {}).get(skill, "")
+        lines.append(f"  {skill}: {score_val}/10 - {reasoning}")
+    lines.append("")
+
+    strengths = results.get("strengths", [])
+    if strengths:
+        lines.append("STRENGTHS: " + ", ".join(strengths))
+        lines.append("")
+
+    missing = results.get("missing_skills", [])
+    if missing:
+        lines.append("WEAK/MISSING SKILLS: " + ", ".join(missing))
+        lines.append("")
+
+    detailed = results.get("detailed_weaknesses", [])
+    if detailed:
+        lines.append("DETAILED WEAKNESS ANALYSIS:")
+        lines.append("-" * 30)
+        for w in detailed:
+            lines.append(f"  Skill: {w.get('skill', '')}")
+            lines.append(f"  Issue: {w.get('weakness', '')}")
+            for sug in w.get("improvement_suggestions", []):
+                lines.append(f"    - {sug}")
+            example = w.get("example_addition", "")
+            if example:
+                lines.append(f"  Example: {example}")
+            lines.append("")
+
+    return "\n".join(lines)
+
+
 def display_analysis_results(results):
     """Display the full analysis results"""
     if not results:
@@ -259,8 +300,19 @@ def display_analysis_results(results):
 
                 example = w.get("example_addition", "")
                 if example:
-                    st.markdown(f"**Example bullet point to add:**")
+                    st.markdown("**Example bullet point to add:**")
                     st.code(example, language=None)
+
+    # Download Analysis Report
+    st.markdown("---")
+    report = _build_analysis_report(results)
+    st.download_button(
+        label="📥 Download Analysis Report",
+        data=report,
+        file_name="resume_analysis_report.txt",
+        mime="text/plain",
+        key="download_analysis_report"
+    )
 
 
 def resume_qa_section(has_resume, ask_questions_fn):
@@ -369,13 +421,42 @@ def interview_question_generation_section(has_resume, generate_questions_func, r
     # Display generated questions
     if "generated_questions" in st.session_state and st.session_state.generated_questions:
         st.markdown("### 📝 Generated Interview Questions")
-        for i, q in enumerate(st.session_state.generated_questions, 1):
-            st.markdown(f"**{i}.** {q}")
+        qa_items = st.session_state.generated_questions
+        for i, item in enumerate(qa_items, 1):
+            if isinstance(item, dict):
+                st.markdown(f"**Q{i}.** {item.get('question', '')}")
+                answer = item.get('answer', '')
+                if answer:
+                    with st.expander(f"💡 View Answer for Q{i}", expanded=False):
+                        st.markdown(answer)
+            else:
+                st.markdown(f"**Q{i}.** {item}")
 
-        # Copy-friendly text area
-        all_questions = "\n".join([f"{i}. {q}" for i, q in enumerate(st.session_state.generated_questions, 1)])
-        with st.expander("📋 Copy All Questions"):
-            st.text_area("Questions (copy from here)", value=all_questions, height=300, key="copy_questions")
+        # Download interview questions report
+        report_lines = []
+        for i, item in enumerate(qa_items, 1):
+            if isinstance(item, dict):
+                report_lines.append(f"Q{i}: {item.get('question', '')}")
+                ans = item.get('answer', '')
+                if ans:
+                    report_lines.append(f"Answer: {ans}")
+            else:
+                report_lines.append(f"Q{i}: {item}")
+            report_lines.append("")
+        interview_report = "\n".join(report_lines)
+
+        col_dl1, col_dl2 = st.columns(2)
+        with col_dl1:
+            with st.expander("📋 Copy All Q&A"):
+                st.text_area("Questions & Answers (copy from here)", value=interview_report, height=300, key="copy_questions")
+        with col_dl2:
+            st.download_button(
+                label="📥 Download Interview Q&A",
+                data=interview_report,
+                file_name="interview_questions.txt",
+                mime="text/plain",
+                key="download_interview_qa"
+            )
 
 
 def resume_improvement_section(has_resume, improvement_fn, analysis_results=None):
@@ -445,3 +526,29 @@ def resume_improvement_section(has_resume, improvement_fn, analysis_results=None
                             st.markdown(f"**{key.replace('_', ' ').title()}:** {value}")
                 else:
                     st.write(details)
+
+        # Download improvement report
+        report_lines = ["RESUME IMPROVEMENT REPORT", "=" * 40, ""]
+        for area, details in suggestions.items():
+            report_lines.append(f"Area: {area}")
+            report_lines.append("-" * 30)
+            if isinstance(details, dict):
+                for key, value in details.items():
+                    if isinstance(value, list):
+                        report_lines.append(f"  {key.replace('_', ' ').title()}:")
+                        for item in value:
+                            report_lines.append(f"    - {item}")
+                    else:
+                        report_lines.append(f"  {key.replace('_', ' ').title()}: {value}")
+            else:
+                report_lines.append(f"  {details}")
+            report_lines.append("")
+        improvement_report = "\n".join(report_lines)
+
+        st.download_button(
+            label="📥 Download Improvement Report",
+            data=improvement_report,
+            file_name="resume_improvement_report.txt",
+            mime="text/plain",
+            key="download_improvement_report"
+        )

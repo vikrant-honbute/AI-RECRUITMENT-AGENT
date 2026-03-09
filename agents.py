@@ -152,20 +152,19 @@ Return ONLY valid JSON:
 
         skills_list = ", ".join(missing_skills)
         llm = ChatGroq(model="llama-3.1-8b-instant", api_key=self.api_key)
-        prompt = f"""For each of these skills the candidate is weak in: {skills_list}
+        prompt = f"""You are a resume reviewer. The candidate is weak in these skills: {skills_list}
 
-Resume:
-{self.resume_text[:2000]}
+Resume excerpt:
+{self.resume_text[:1500]}
 
-For EACH skill, provide:
-- weakness: what's missing (1 sentence)
-- improvement_suggestions: 2 actionable suggestions
-- example_addition: 1 bullet point to add
+For each weak skill, write:
+1. weakness - one sentence explaining what is missing from the resume
+2. suggestion1 - one actionable improvement tip
+3. suggestion2 - another actionable improvement tip  
+4. example - a resume bullet point the candidate could add
 
-Return ONLY valid JSON array:
-[
-  {{"skill": "skill_name", "weakness": "...", "improvement_suggestions": ["...", "..."], "example_addition": "..."}}
-]
+Respond ONLY with a JSON array using double quotes:
+[{{"skill":"X","weakness":"...","improvement_suggestions":["...","..."],"example_addition":"..."}}]
 """
 
         try:
@@ -173,14 +172,33 @@ Return ONLY valid JSON array:
             content = response.content
             json_match = re.search(r'\[.*\]', content, re.DOTALL)
             if json_match:
-                weaknesses = json.loads(json_match.group(0))
+                raw = json_match.group(0)
+                try:
+                    weaknesses = json.loads(raw)
+                except json.JSONDecodeError:
+                    fixed = raw.replace("'", '"')
+                    fixed = re.sub(r',\s*]', ']', fixed)
+                    fixed = re.sub(r',\s*}', '}', fixed)
+                    weaknesses = json.loads(fixed)
                 self.resume_weakness = weaknesses
                 return weaknesses
         except Exception:
             pass
 
-        # Fallback: simple weakness entries without LLM
-        weaknesses = [{"skill": s, "weakness": f"Low proficiency in {s}", "improvement_suggestions": [], "example_addition": ""} for s in missing_skills]
+        # Fallback: generate weakness info per skill without JSON
+        weaknesses = []
+        for s in missing_skills:
+            score = self.analysis_result.get("skill_scores", {}).get(s, 0)
+            reasoning = self.analysis_result.get("skill_reasoning", {}).get(s, "")
+            weaknesses.append({
+                "skill": s,
+                "weakness": reasoning if reasoning and reasoning != "Could not analyze this skill." else f"The resume does not demonstrate experience or projects involving {s}.",
+                "improvement_suggestions": [
+                    f"Add projects or coursework that demonstrate hands-on experience with {s}.",
+                    f"Include certifications or training related to {s}."
+                ],
+                "example_addition": f"Developed/implemented a project using {s} to solve [specific problem], achieving [specific result]."
+            })
         self.resume_weakness = weaknesses
         return weaknesses
         
@@ -396,22 +414,35 @@ You are a senior technical interviewer. {difficulty_guidance}
 
 {context}
 
-Generate exactly {num_questions} interview questions that are:
-1. Focused on assessing the candidate's proficiency in the identified skills.
-2. Aligned with the candidate's strengths to further explore those areas.
-3. Targeted at understanding how the candidate can improve in their weaker areas.
-4. A mix of the following question types: {', '.join(question_types)}.
+Generate exactly {num_questions} detailed interview questions.
+Question types to include: {', '.join(question_types)}.
+Difficulty: {difficulty}
 
-Difficulty level: {difficulty}
+IMPORTANT: Each question must be a real, specific, answerable interview question (not just a topic).
+For each question, also provide a concise ideal answer.
 
-Provide the questions in a numbered list format.
+Return ONLY a JSON array with double quotes:
+[{{"question": "What is...?", "answer": "The ideal answer is..."}}, ...]
 """
 
             response = self._retry_with_backoff(llm.invoke, prompt)
-            questions_text = response.content
+            content = response.content
 
-            questions = re.findall(r"\d+\.\s*(.*)", questions_text)
-            return questions
+            json_match = re.search(r'\[.*\]', content, re.DOTALL)
+            if json_match:
+                raw = json_match.group(0)
+                try:
+                    qa_pairs = json.loads(raw)
+                except json.JSONDecodeError:
+                    fixed = raw.replace("'", '"')
+                    fixed = re.sub(r',\s*]', ']', fixed)
+                    fixed = re.sub(r',\s*}', '}', fixed)
+                    qa_pairs = json.loads(fixed)
+                return qa_pairs
+
+            # Fallback: parse numbered list
+            questions = re.findall(r"\d+\.\s*(.*)", content)
+            return [{"question": q, "answer": ""} for q in questions]
 
         except Exception as e:
             print(f"Error generating interview questions: {e}")
